@@ -1,0 +1,12 @@
+[Unit]
+Description=NDI Monitor
+After=network-online.target
+
+[Service]
+User=ndi
+ExecStart=/opt/ndi_monitor/bin/ndi_monitor
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
