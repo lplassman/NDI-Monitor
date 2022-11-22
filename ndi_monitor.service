@@ -4,6 +4,7 @@ After=network-online.target
 
 [Service]
 User=ndi
+Environment="DISPLAY=:0"
 ExecStart=/opt/ndi_monitor/bin/ndi_monitor
 Restart=always
 RestartSec=5
