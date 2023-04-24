@@ -56,7 +56,7 @@ monitor::monitor(const char* source): m_pNDI_recv(NULL), m_pNDI_framesync(NULL),
   pid = fork();
   if(pid == 0){
    printf("child process, pid = %u\n",getpid());
-   execl("/usr/local/bin/ffplay", "/usr/local/bin/ffplay", "-fs", "-alwaysontop", "-fflags", "nobuffer", "-f", "libndi_newtek", "-bandwidth", "0", "-i", source, NULL); //start the monitor(ffmpeg) process
+   execl("/usr/local/bin/ffplay", "/usr/local/bin/ffplay", "-fs", "-alwaysontop", "-fflags", "nobuffer", "-flags", "low_delay", "-framedrop", "-analyzeduration", "0", "-max_probe_packets", "1", "-max_delay", "0", "-probesize", "100000", "-f", "libndi_newtek", "-bandwidth", "0", "-i", source, NULL); //start the monitor(ffmpeg) process
   }
 }
 
