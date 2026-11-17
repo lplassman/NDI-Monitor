@@ -15,4 +15,7 @@ fi
 cp "NDI SDK for Linux"/include/* include/
 cp "NDI SDK for Linux"/lib/x86_64-linux-gnu/* lib/
 
-g++ -std=c++14 -O2 -pthread  -Wl,--allow-shlib-undefined -Wl,--as-needed -Iinclude/ -L lib -o build/ndi_monitor ndi_monitor.cpp mongoose.c mjson.c -lndi -ldl
+g++ -std=c++14 -O2 -pthread -DNDI_MONITOR_GPU_OUTPUT \
+  $(pkg-config --cflags sdl2) -Wl,--allow-shlib-undefined -Wl,--as-needed \
+  -Iinclude/ -L lib -o build/ndi_monitor ndi_monitor.cpp mongoose.c mjson.c \
+  -lndi -ldl $(pkg-config --libs sdl2)

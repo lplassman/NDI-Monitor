@@ -1,20 +1,20 @@
 # NDI Monitor
 
-NDI Monitor connects to a Full NDI stream using the native NDI SDK and writes video directly to a Linux framebuffer device.
+NDI Monitor connects to a Full NDI stream using the native NDI SDK. The x86_64 build presents video through an accelerated SDL2 KMS/DRM renderer; other architecture builds use a Linux framebuffer.
 
 ## Features
 - Manage NDI sources using the integrated web server
-- Direct SDK capture and framebuffer output, with no external player or application frame queue
+- Direct SDK capture with GPU-scaled KMS/DRM output on x86_64
 - Uses the latest version of NDI - NDI 5
 
 
 ### Display requirements
 
-No FFmpeg, SDL, X11, or Wayland dependency is required. The NDI SDK provides video decoding. Audio playback is not supported.
+No external player, X11, or Wayland dependency is required. The NDI SDK provides video decoding. Audio playback is not supported.
 
-The display must expose a writable Linux fbdev device (default `/dev/fb0`) using packed true-color 16-, 24-, or 32-bit pixels. Palette, grayscale, and planar modes are not supported. Configure the display resolution before starting the monitor. Video is scaled with nearest-neighbor sampling to fit the display, preserving the NDI picture aspect ratio with black bars where necessary. Matching the display mode to the source resolution avoids scaling overhead.
+The x86_64 build uses SDL2's KMS/DRM video driver and an accelerated, vertical-sync renderer. It requires an Intel/Linux graphics driver with KMS enabled, access to the primary DRM device (normally through the `video` group), and exclusive use of the display. The service selects the KMSDRM SDL driver. This path scales video on the GPU, but NDI decoding and the transfer of each received frame to a GPU texture still use CPU/memory bandwidth. Other architecture builds use fbdev and require a writable `/dev/fb0` with packed true-color 16-, 24-, or 32-bit pixels.
 
-Run on a dedicated console/display: desktop compositors and console output must not write to the same framebuffer. On systems that expose only DRM/KMS, enable fbdev emulation or a framebuffer driver first. The monitor does not configure display modes or synchronize writes to vertical blank; tearing is possible, and actual latency depends on the sender, network, SDK, and display.
+Run on a dedicated console without a desktop: KMS/DRM takes control of the display and cannot share it with a desktop compositor. Video is scaled with nearest-neighbor sampling to fit the active mode, preserving the NDI picture aspect ratio with black bars where necessary. The x86_64 renderer requests vertical synchronization; actual latency still depends on the sender, network, SDK, and display. For fbdev builds, configure the display resolution before starting; fbdev writes are not synchronized to vertical blank.
 
 ### Download required installation files
 
@@ -96,11 +96,11 @@ Run the monitor and its web server, then open the device's IP address in a brows
 ndi_monitor
 ```
 
-Select a different framebuffer with `ndi_monitor --framebuffer /dev/fb1`. The process needs read/write access to that device, typically through membership in the `video` group. Only one source can be displayed at a time; stop it before selecting another. Stopping a source or shutting down clears the display.
+On x86_64, run from a dedicated console; the service sets `SDL_VIDEODRIVER=KMSDRM`. To run it manually, use `SDL_VIDEODRIVER=KMSDRM ndi_monitor`. The renderer requires an accelerated SDL2 KMS/DRM backend and fails rather than silently switching to CPU rendering. Use `ndi_monitor --framebuffer /dev/fb0` to explicitly select the legacy fbdev output. Only one source can be displayed at a time; stop it before selecting another. Stopping a source or shutting down clears the display.
 
 ## Install service file for starting ndi_monitor on boot
 
-By default this service runs as the `ndi` user with supplementary `video` group access to the framebuffer. Create that user or customize it before installing. Adjust `ExecStart` with `--framebuffer /dev/fb1` if needed:
+By default this service runs as the `ndi` user with supplementary `video` group access to DRM or framebuffer devices. Create that user or customize it before installing. The service selects SDL's KMSDRM driver; use `--framebuffer /dev/fb1` in `ExecStart` to use fbdev instead:
 
 ```
 sudo nano ./ndi_monitor.service
@@ -115,7 +115,7 @@ sudo systemctl start ndi_monitor.service
 
 ## Development checks
 
-The framebuffer tests need only the system compiler and Linux headers:
+The fbdev tests need only the system compiler and Linux headers:
 
 ```
 g++ -std=c++14 -Wall -Wextra -Werror -Iinclude tests/framebuffer_test.cpp -o /tmp/ndi-framebuffer-test
@@ -129,3 +129,5 @@ g++ -std=c++14 -pthread -Iinclude tests/monitor_test.cpp mongoose.c mjson.c \
   -Wl,--wrap=open,--wrap=close,--wrap=ioctl,--wrap=mmap,--wrap=munmap -o /tmp/ndi-monitor-test
 /tmp/ndi-monitor-test
 ```
+
+The x86_64 build additionally requires SDL2 development files and `pkg-config`; the installer installs `libsdl2-dev`. Live KMS/DRM rendering can only be verified on a machine with a supported graphics driver and an available console display.

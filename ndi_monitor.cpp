@@ -21,7 +21,12 @@
 #include "mjson.h"
 #include <thread>
 #include <vector>
+#include <mutex>
+#include <climits>
 #include "framebuffer.h"
+#ifdef NDI_MONITOR_GPU_OUTPUT
+#include "gpu_output.h"
+#endif
 
 #include <getopt.h> 
 #include <condition_variable>
@@ -37,6 +42,7 @@ struct mg_mgr mgr;
 std::string convertToString(char* a);
 
 static std::string framebuffer_path = "/dev/fb0";
+static bool framebuffer_selected = false;
 static volatile sig_atomic_t stopping = 0;
 struct discovered_source {
   std::string name;
@@ -49,9 +55,18 @@ struct monitor {
  monitor(const char* source, const char* url = nullptr); //constructor
  ~monitor(void); //destructor 
  bool failed() const { return m_failed; }
+ void present_pending();
  private:	
-  void receive();
-  framebuffer m_framebuffer;
+ void receive();
+ std::unique_ptr<framebuffer> m_framebuffer;
+#ifdef NDI_MONITOR_GPU_OUTPUT
+ std::unique_ptr<gpu_output> m_gpu_output;
+ std::mutex m_frame_mutex;
+ std::vector<uint8_t> m_pending_pixels;
+ int m_pending_width = 0;
+ int m_pending_height = 0;
+ double m_pending_aspect = 0;
+#endif
 	NDIlib_recv_instance_t m_pNDI_recv; // Create the receiver
 	std::atomic<bool> m_exit;	// Are we ready to exit
   std::atomic<bool> m_failed{false};
@@ -63,7 +78,15 @@ struct monitor {
 
 //Constructor
 monitor::monitor(const char* source, const char* url)
-    : m_framebuffer(framebuffer_path.c_str()), m_pNDI_recv(NULL), m_exit(false) {
+    : m_pNDI_recv(NULL), m_exit(false) {
+#ifdef NDI_MONITOR_GPU_OUTPUT
+  if (framebuffer_selected)
+    m_framebuffer.reset(new framebuffer(framebuffer_path.c_str()));
+  else
+    m_gpu_output.reset(new gpu_output());
+#else
+  m_framebuffer.reset(new framebuffer(framebuffer_path.c_str()));
+#endif
   printf("Starting Monitor for %s\n", source);
   NDIlib_recv_create_v3_t settings = {};
   settings.source_to_connect_to.p_ndi_name = source;
@@ -90,8 +113,33 @@ void monitor::receive() {
         if (video.FourCC != NDIlib_FourCC_video_type_BGRX &&
             video.FourCC != NDIlib_FourCC_video_type_BGRA)
           throw std::runtime_error("NDI receiver returned an unsupported pixel format");
-        m_framebuffer.render(video.p_data, video.xres, video.yres,
-                             video.line_stride_in_bytes, video.picture_aspect_ratio);
+#ifdef NDI_MONITOR_GPU_OUTPUT
+        if (m_gpu_output) {
+          if (!video.p_data || video.xres <= 0 || video.yres <= 0 ||
+              video.xres > INT_MAX / 4 ||
+              int64_t(video.line_stride_in_bytes) < int64_t(video.xres) * 4) {
+            throw std::runtime_error("Invalid NDI video frame");
+          }
+          const size_t row_bytes = size_t(video.xres) * 4;
+          if (size_t(video.yres) > SIZE_MAX / row_bytes)
+            throw std::runtime_error("NDI video frame is too large");
+          std::vector<uint8_t> frame(row_bytes * size_t(video.yres));
+          for (int y = 0; y < video.yres; ++y) {
+            std::memcpy(frame.data() + size_t(y) * row_bytes,
+                        video.p_data + size_t(y) * video.line_stride_in_bytes,
+                        row_bytes);
+          }
+          std::lock_guard<std::mutex> lock(m_frame_mutex);
+          m_pending_pixels.swap(frame);
+          m_pending_width = video.xres;
+          m_pending_height = video.yres;
+          m_pending_aspect = video.picture_aspect_ratio;
+        } else
+#endif
+        {
+          m_framebuffer->render(video.p_data, video.xres, video.yres,
+                                video.line_stride_in_bytes, video.picture_aspect_ratio);
+        }
       } catch (const std::exception& error) {
         fprintf(stderr, "Monitor: %s\n", error.what());
         m_failed = true;
@@ -106,12 +154,39 @@ void monitor::receive() {
   }
 }
 
+void monitor::present_pending() {
+#ifdef NDI_MONITOR_GPU_OUTPUT
+  if (!m_gpu_output) return;
+  std::vector<uint8_t> pixels;
+  int width;
+  int height;
+  double aspect;
+  {
+    std::lock_guard<std::mutex> lock(m_frame_mutex);
+    if (m_pending_pixels.empty()) return;
+    pixels.swap(m_pending_pixels);
+    width = m_pending_width;
+    height = m_pending_height;
+    aspect = m_pending_aspect;
+  }
+  try {
+    m_gpu_output->render(pixels.data(), width, height, width * 4, aspect);
+  } catch (const std::exception& error) {
+    fprintf(stderr, "Monitor: %s\n", error.what());
+    m_failed = true;
+  }
+#endif
+}
+
 // Destructor
 monitor::~monitor(void){	// Wait for the thread to exit
 	m_exit = true;
   if (m_thread.joinable()) m_thread.join();
   NDIlib_recv_destroy(m_pNDI_recv);
-  m_framebuffer.clear();
+  if (m_framebuffer) m_framebuffer->clear();
+#ifdef NDI_MONITOR_GPU_OUTPUT
+  if (m_gpu_output) m_gpu_output->clear();
+#endif
 }
 
 
@@ -307,7 +382,7 @@ static void usage(FILE *fp, const char* program){
                  "Version 1.0\n"
                  "Options:\n"
                  "-h | --help          Print this message\n"
-                 "-f | --framebuffer   Framebuffer device (default /dev/fb0)\n"
+                 "-f | --framebuffer   Use fbdev output (default /dev/fb0)\n"
                  "",
                  program);
 }
@@ -335,6 +410,7 @@ int main (int argc, char *argv[]){
      exit(EXIT_SUCCESS);          
     case 'f':
      framebuffer_path = optarg;
+     framebuffer_selected = true;
      break;
     default:
      usage(stderr, argv[0]);
@@ -392,8 +468,9 @@ int main (int argc, char *argv[]){
   const bool listening = mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL) != nullptr;
   if (!listening) fprintf(stderr, "Cannot listen on port 80\n");
   while (listening && !stopping) {
-   mg_mgr_poll(&mgr, 100);
+   mg_mgr_poll(&mgr, 10);
    for (uint32_t i = 0; i < no_monitors; ++i) {
+    if (p_monitors[i]) p_monitors[i]->present_pending();
     if (p_monitors[i] && p_monitors[i]->failed()) {
      for (struct mg_connection* client = mgr.conns; client; client = client->next)
       if (client->label[0] == 'W') report_error(client, "NDI monitor failed; see service logs");
