@@ -69,6 +69,10 @@
     console.log(json_object);
     var prefix = json_object.prefix;
     var action = json_object.action;
+    if(prefix == "error"){
+     alert(json_object.message);
+     return;
+    }
     if((prefix == "discover_source")&&(action == "display")){
      var source_list = json_object.source_list; //get NDI source list
      var source_html = "";

@@ -6,6 +6,7 @@ echo "Starting install of NDI Monitor for x86_64-bit..."
 
 echo "Installing prerequisites..."
 sudo bash ./preinstall.sh
+sudo apt-get install -y --no-install-recommends libsdl2-dev pkg-config
 
 echo "Downloading NDI libraries..."
 sudo bash ./download_NDI_SDK.sh
