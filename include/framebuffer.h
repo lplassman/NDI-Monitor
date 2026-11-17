@@ -100,18 +100,40 @@ class framebuffer_surface {
     }
 
     const uint16_t endian_check = 1;
-    const bool copy_rows = *reinterpret_cast<const uint8_t*>(&endian_check) == 1 &&
-        output_width == uint32_t(width) && output_height == uint32_t(height) &&
+    const bool direct_format = *reinterpret_cast<const uint8_t*>(&endian_check) == 1 &&
         variable_.bits_per_pixel == 32 && variable_.red.offset == 16 &&
         variable_.red.length == 8 && variable_.green.offset == 8 &&
         variable_.green.length == 8 && variable_.blue.offset == 0 &&
         variable_.blue.length == 8 && !variable_.transp.length;
+    const bool copy_rows = direct_format &&
+        output_width == uint32_t(width) && output_height == uint32_t(height);
+    const uint32_t scale_x = output_width % uint32_t(width) == 0
+        ? output_width / uint32_t(width) : 0;
+    const uint32_t scale_y = output_height % uint32_t(height) == 0
+        ? output_height / uint32_t(height) : 0;
+    const bool integer_scale = direct_format && scale_x && scale_y;
     for (uint32_t y = 0; y < output_height; ++y) {
       const uint8_t* source = pixels +
           size_t(uint64_t(y) * height / output_height) * stride;
       uint8_t* destination = row(top + y) + size_t(left) * bytes_per_pixel_;
       if (copy_rows) {
         std::memcpy(destination, source, size_t(output_width) * 4);
+        continue;
+      }
+      if (integer_scale) {
+        if (y % scale_y) {
+          std::memcpy(destination, row(top + y - 1) + size_t(left) * 4,
+                      size_t(output_width) * 4);
+          continue;
+        }
+        source = pixels + size_t(y / scale_y) * stride;
+        for (uint32_t x = 0; x < uint32_t(width); ++x) {
+          const uint8_t* pixel = source + size_t(x) * 4;
+          for (uint32_t repeat = 0; repeat < scale_x; ++repeat) {
+            std::memcpy(destination, pixel, 4);
+            destination += 4;
+          }
+        }
         continue;
       }
       for (uint32_t x = 0; x < output_width; ++x) {

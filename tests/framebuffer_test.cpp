@@ -96,6 +96,21 @@ int main() {
   surface.render(colors, 2, 2, 12, 1e100);
   assert(scaled.pixel(0, 0) == 0);
 
+  display doubled(4, 4, 32);
+  framebuffer_surface doubled_surface(doubled.memory.data(), doubled.fixed,
+                                      doubled.variable);
+  doubled_surface.render(colors, 2, 2, 12, 1.0);
+  for (unsigned y = 0; y < 4; ++y) {
+    for (unsigned x = 0; x < 4; ++x) {
+      const unsigned source_x = x / 2;
+      const unsigned source_y = y / 2;
+      const uint32_t expected = source_y == 0
+          ? (source_x == 0 ? 0xff0000u : 0x00ff00u)
+          : (source_x == 0 ? 0x0000ffu : 0xffffffu);
+      assert(doubled.pixel(x, y) == expected);
+    }
+  }
+
   display downscaled(1, 1, 16);
   framebuffer_surface small(downscaled.memory.data(), downscaled.fixed, downscaled.variable);
   small.render(colors, 2, 2, 12);
