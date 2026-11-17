@@ -128,10 +128,16 @@ class framebuffer_surface {
         }
         source = pixels + size_t(y / scale_y) * stride;
         for (uint32_t x = 0; x < uint32_t(width); ++x) {
-          const uint8_t* pixel = source + size_t(x) * 4;
+          uint32_t pixel;
+          std::memcpy(&pixel, source + size_t(x) * 4, sizeof(pixel));
+          uint8_t* scaled_pixel = destination + size_t(x) * scale_x * 4;
+          if (scale_x == 2) {
+            const uint64_t pair = uint64_t(pixel) | (uint64_t(pixel) << 32);
+            std::memcpy(scaled_pixel, &pair, sizeof(pair));
+            continue;
+          }
           for (uint32_t repeat = 0; repeat < scale_x; ++repeat) {
-            std::memcpy(destination, pixel, 4);
-            destination += 4;
+            std::memcpy(scaled_pixel + size_t(repeat) * 4, &pixel, sizeof(pixel));
           }
         }
         continue;

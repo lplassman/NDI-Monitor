@@ -111,6 +111,21 @@ int main() {
     }
   }
 
+  display quadrupled(8, 8, 32);
+  framebuffer_surface quadrupled_surface(quadrupled.memory.data(),
+                                         quadrupled.fixed, quadrupled.variable);
+  quadrupled_surface.render(colors, 2, 2, 12, 1.0);
+  for (unsigned y = 0; y < 8; ++y) {
+    for (unsigned x = 0; x < 8; ++x) {
+      const unsigned source_x = x / 4;
+      const unsigned source_y = y / 4;
+      const uint32_t expected = source_y == 0
+          ? (source_x == 0 ? 0xff0000u : 0x00ff00u)
+          : (source_x == 0 ? 0x0000ffu : 0xffffffu);
+      assert(quadrupled.pixel(x, y) == expected);
+    }
+  }
+
   display downscaled(1, 1, 16);
   framebuffer_surface small(downscaled.memory.data(), downscaled.fixed, downscaled.variable);
   small.render(colors, 2, 2, 12);
