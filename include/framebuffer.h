@@ -70,10 +70,10 @@ class framebuffer_surface {
     uint32_t output_height = variable_.yres;
     if (double(output_width) / output_height > aspect_ratio)
       output_width = std::max(1.0, std::min(double(output_width),
-                                          output_height * aspect_ratio));
+                                          std::round(output_height * aspect_ratio)));
     else
       output_height = std::max(1.0, std::min(double(output_height),
-                                           output_width / aspect_ratio));
+                                           std::round(output_width / aspect_ratio)));
     const uint32_t left = (variable_.xres - output_width) / 2;
     const uint32_t top = (variable_.yres - output_height) / 2;
     if (left != last_left_ || top != last_top_ ||
