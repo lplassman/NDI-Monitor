@@ -52,8 +52,22 @@ class framebuffer_surface {
   }
 
   void clear() {
-    for (uint32_t y = 0; y < variable_.yres; ++y)
-      std::memset(row(y), 0, size_t(variable_.xres) * bytes_per_pixel_);
+    const uint32_t black = channel(255, variable_.transp);
+    const uint16_t endian_check = 1;
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&black);
+    if (*reinterpret_cast<const uint8_t*>(&endian_check) != 1)
+      bytes += sizeof(black) - bytes_per_pixel_;
+    for (uint32_t y = 0; y < variable_.yres; ++y) {
+      uint8_t* destination = row(y);
+      if (!variable_.transp.length) {
+        std::memset(destination, 0, size_t(variable_.xres) * bytes_per_pixel_);
+        continue;
+      }
+      for (uint32_t x = 0; x < variable_.xres; ++x) {
+        std::memcpy(destination, bytes, bytes_per_pixel_);
+        destination += bytes_per_pixel_;
+      }
+    }
   }
 
   void render(const uint8_t* pixels, int width, int height, int stride,
